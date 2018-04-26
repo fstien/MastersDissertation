@@ -1,0 +1,180 @@
+```{r}
+library(readxl)
+library(plyr)
+library(zoo)
+library(forecast)
+library(astsa)
+library(DEoptim)
+library(DEoptimR)
+library(parallel)
+library(foreach)
+library(doParallel)
+library(readr)
+
+set.seed(1234)
+
+rm(list=ls())
+load("work.Rdata")
+
+# To read a dataFrame
+setwd("/Users/francois/Dropbox/Francois dissertation/PPPElasticNetAWS")
+wDF <- as.data.frame(read_csv(file = "PPPElasticNetFinal.csv"))
+wDF
+```
+
+```{r}
+plot(wDF$PPP[winSize:nrow(wDF)], type="l")
+plot(wDF$rPPP[winSize:nrow(wDF)], type="l")
+plot(wDF$r0PPP[winSize:nrow(wDF)], type="l")
+plot(wDF$PPP0[winSize:nrow(wDF)], type="l")
+```
+
+
+```{r}
+# Add the columns of positive weights 
+for(i in 1:length(ctry)) {
+  wDF[paste("w0", ctry[i], sep="")] <- 0
+}
+colnames(wDF)
+
+# Add up the no-shortsale wegiths 
+for(i in 1:length(ctry)) {
+  wDF[31, paste("w", ctry[i], sep="")]
+}
+
+for(t in (winSize+1):nrow(wDF)) { 
+  # Add up the positive wegiths 
+  sumMax <- 0
+  for(i in 1:length(ctry)) {
+    if(wDF[t, paste("w", ctry[i], sep="")] > 0) { 
+      sumMax <- sumMax + wDF[t, paste("w", ctry[i], sep="")]
+    }
+  }
+  # Plug in adjusted weights when they are positive
+  for(i in 1:length(ctry)) {
+    if(wDF[t, paste("w", ctry[i], sep="")] > 0) { 
+      wDF[t, paste("w0", ctry[i], sep="")] <- wDF[t, paste("w", ctry[i], sep="")] / sumMax
+    }
+  }
+}
+
+
+# Compute PPP no shortsale returns
+wDF$r0PPP <- wDF$u0 <- 0
+for(t in (winSize+1):nrow(wDF)) { 
+
+  #Loop over the countries
+  Rpt <- 0
+  for ( c in seq(4, (ncol(df)-length(ctry)), (nCat+2) )  ) {
+    #print( c(colnames(df)[(c-1)], df[t,c] ) )
+    #print( wDF[t, paste("w0",colnames(df)[(c-1)],sep="")] )
+    
+    if(wDF[t, paste("w0",colnames(df)[(c-1)],sep="")] > 0 ) { 
+      #print( c("w", wDF[t, paste("w0",colnames(df)[(c-1)],sep="")] ))
+      
+      Rpt <- Rpt + as.numeric(wDF[t, paste("w0",colnames(df)[(c-1)],sep="")])*df[t,c]  
+    }
+  }
+
+  wDF$r0PPP[t] <- Rpt
+  wDF$u0[t] <- u(Rpt, gamma)
+}
+
+# Compute the PPP no shortsale cumulative return
+wDF$PPP0 <- 1
+for(t in (winSize+1):nrow(wDF)) { 
+  wDF$PPP0[t] <- (1 + wDF$r0PPP[t])*wDF$PPP0[(t-1)]
+}
+
+# Turnover 
+# For PPP
+wDF$PPPTurn <- 0
+for(t in (winSize+2):nrow(wDF)) { 
+  Tt <- 0
+  for(i in 1:length(ctry)) {
+    Tt <- Tt + abs(wDF[t, paste("w", ctry[i], sep="")] -  wDF[(t-1), paste("w", ctry[i], sep="")])
+  }
+  wDF$PPPTurn[t] <- Tt
+}
+
+# For no shortsale PPP
+wDF$PPP0Turn <- 0
+for(t in (winSize+2):nrow(wDF)) { 
+  Tt <- 0
+  for(i in 1:length(ctry)) {
+    Tt <- Tt + abs(wDF[t, paste("w0", ctry[i], sep="")] -  wDF[(t-1), paste("w0", ctry[i], sep="")])
+  }
+  wDF$PPP0Turn[t] <- Tt
+}
+
+
+# Find the CEQ return for shortsale constrained PPP
+averageUtility <- mean(wDF$u0[(winSize+1):nrow(wDF)])
+
+UInverse <- function(par) { 
+    out <- (u(par,gamma) - averageUtility)^2
+    return(out)
+}
+
+# CEQ return is R such that u(R) = averageUtility
+CEQ0 <- optim(par = mean(wDF$r0PPP[(winSize+1):nrow(wDF)]), fn = UInverse, method=c("Brent"), lower=-1, upper=1)
+u(CEQ0$par, gamma)
+
+
+
+
+
+
+
+
+plot(wDF$u0[(winSize+1):nrow(wDF)], type="l")
+
+
+
+write.csv(file="wDFinal.csv", x=wDF, row.names=FALSE)
+
+sum(par^2)
+
+# The Lasso constraint 
+absVal <- c()
+for(t in (winSize+1):nrow(wDF)) { 
+  absVal <- c(absVal, sum(abs(wDF[t,3:54])))
+}
+plot(density(absVal, adjust=0.01))
+
+
+# The ElasticNet Constraint
+sqVal <- c()
+for(t in (winSize+1):nrow(wDF)) { 
+  sqVal <- c(sqVal, sum(wDF[t,3:54]^2))
+}
+plot(density(sqVal, adjust=0.01))
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
