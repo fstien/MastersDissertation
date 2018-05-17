@@ -1,4 +1,4 @@
-# "Lasso Regularisation of Parametric Portfolio Policies"
+# Lasso Regularisation of Parametric Portfolio Policies
 
 ## Abstract
 
